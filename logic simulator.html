@@ -1,0 +1,1076 @@
+<canvas id='canvas'></canvas>
+<div id='menu'>
+		<button onclick='add_component("switch")'>Switch</button>
+		<button onclick='add_component("output")'>Output</button>
+		<button onclick='components.push(new component(350+Math.random()*210,350+Math.random()*110,"and",null,[],[],null,[],[],num_inputs=inputs))'>AND</button>
+		<button onclick='components.push(new component(350+Math.random()*210,350+Math.random()*110,"or",null,[],[],null,[],[],num_inputs=inputs))'>OR</button>
+		<button onclick='components.push(new component(350+Math.random()*210,350+Math.random()*110,"not"))'>NOT</button>
+		<button onclick='add_component("clock")'>CLOCK</button>
+		<input id="slide" type="range" min="1" max="8" step="1" value="2"><output style='font-family: Arial'id='output'></output>
+	<br>
+		<button onclick='add_component("nor")'>NOR</button>
+		<button onclick='add_component("nand")'>NAND</button>
+		<button onclick='add_component("xor")'>XOR</button>
+		<button onclick='add_component("xnor")'>XNOR</button>
+		<button onclick='add_component("const 0")'>0</button>
+		<button onclick='add_component("const 1")'>1</button>
+	<br>
+	<br>
+		<button onclick='components=[];wires=[];'>Clear</button>
+		<button onclick='localStorage.setItem("button_save",save())'>💾 to Storage</button>
+		<button onclick='load(localStorage.getItem("button_save"))'>📥 from Storage</button>
+	<br>
+	<br>
+		<button onclick='temp = JSON.parse(localStorage.getItem("saved_ics")); 
+		temp.push(JSON.parse(integrated_circuit_export(integrated_circuit_setup(save(true),name=prompt("Enter Name"))))); localStorage.setItem("saved_ics",JSON.stringify(temp));'>Create IC</button>
+		<button onclick='localStorage.setItem("saved_ics",JSON.stringify([]))'>Clear ICs</button>
+		<button onclick='localStorage.setItem("saved_ics",JSON.stringify(JSON.parse(localStorage.getItem("saved_ics")).slice(0,-1)))'>Remove last IC</button>
+		<button onclick='load(JSON.stringify(JSON.parse(localStorage.getItem("saved_ics"))[parseInt(prompt("Enter Number:"))].internal))'>Load Inside IC</button>
+	<br>
+	<br>
+</div>
+
+<style>
+#menu {
+	position: absolute;
+	z-index: 123;
+	top: 10;
+	left:10;
+  	pointer-events: none;
+}
+
+#menu2 {
+	position: absolute;
+	z-index: 123;
+	top: 50%;
+	left:50%;
+ 	pointer-events: none;
+ 	transform: translate(-50%, -50%);
+}
+
+input {
+	pointer-events: auto;
+}
+
+button {
+	pointer-events: auto;
+	font-size: 20px;
+	display: inline-block;
+	padding: 0.6em 1.1em;
+	border: 0.1em solid #ffffff;
+	margin: 0 0.3em 0.3em 0;
+	border-radius: 0.12em;
+	box-sizing: border-box;
+	text-decoration: none;
+	font-family: "Roboto", sans-serif;
+	font-weight: 300;
+	color: #000;
+	text-align: center;
+	transition: all 0.2s;
+}
+
+button:hover {
+  color: #000000;
+  background-color: #ffffff;
+}
+
+* {user-select:none;}
+</style>
+<style>body { margin:0; }</style>
+<script>
+
+if (localStorage.getItem("saved_ics") == null){
+	localStorage.setItem("saved_ics",JSON.stringify([]))
+}
+for (ic of JSON.parse(localStorage.getItem('saved_ics'))){
+	var newButton = document.createElement("button")
+	newButton.innerHTML = ic['name']
+	newButton.setAttribute("onclick", "components.push(integrated_circuit_setup("+JSON.stringify(ic)+"))")
+	document.getElementById("menu").appendChild(newButton)
+}
+
+//load(JSON.stringify(JSON.parse(localStorage.getItem('saved_ics'))[1].internal))
+
+var arraysMatch = function (arr1, arr2) {
+
+	// Check if the arrays are the same length
+	if (arr1.length !== arr2.length) return false;
+
+	// Check if all items exist and are in the same order
+	for (var i = 0; i < arr1.length; i++) {
+		if (arr1[i] !== arr2[i]) return false;
+	}
+
+	// Otherwise, return true
+	return true;
+
+};
+
+</script>
+<script>
+var canvas = document.getElementById('canvas');  
+var ctx = canvas.getContext('2d');
+canvas.height = window.innerHeight
+canvas.width = window.innerWidth
+
+var inputs = 2
+
+document.getElementById('slide').onchange = function() {
+    inputs =parseInt(this.value)
+    document.getElementById('output').innerHTML=inputs
+}
+
+// Zoom
+let scale = 1;
+let originx = 0;
+let originy = 0;
+let visibleWidth = window.innerWidth;
+let visibleHeight = window.innerHeight;
+const zoomIntensity = 0.1;
+
+var selected = []
+
+// Zoom function from https://stackoverflow.com/questions/2916081/zoom-in-on-a-point-using-scale-and-translate
+canvas.onwheel = function(event) {
+    event.preventDefault();
+    const mousex = event.clientX - canvas.offsetLeft;
+    const mousey = event.clientY - canvas.offsetTop;
+    const wheel = event.deltaY < 0 ? 1 : -1;
+    const zoom = Math.exp(wheel * zoomIntensity);
+    ctx.translate(originx, originy);
+    originx -= mousex / (scale * zoom) - mousex / scale;
+    originy -= mousey / (scale * zoom) - mousey / scale;
+    ctx.scale(zoom, zoom);
+    ctx.translate(-originx, -originy);
+    scale *= zoom;
+    visibleWidth = canvas.width / scale;
+    visibleHeight = canvas.height / scale;
+};
+
+
+//  Unused function for testing curved lines https://stackoverflow.com/questions/20353677/drawing-a-smooth-curved-arc-between-two-points
+function plot(x1,y1,x2,y2){
+  var ctx = canvas.getContext('2d'),
+    p1 = { x: x1, y: y1}, /// point 1
+    p2 = { x: x2, y: y2}, /// point 2
+    mx = (p2.x - p1.x) * 0.5, /// mid-point between point 1 and 2
+    my = (p2.y - p1.y) * 0.5,
+    c1 = { x: p1.x, y: p1.y + my}, /// create center point objects
+    c2 = {x: p2.x, y: p2.y - my},
+    steps = 0.05; /// curve resolution
+
+    /// mark the points and the boxes which represent the center of those
+	// ctx.fillStyle = '#ff6e6e';
+	// ctx.fillRect(p1.x, p1.y, mx, my);
+	// ctx.fillStyle = '#6e93ff';
+	// ctx.fillRect(p1.x + mx, p1.y + my, mx, my);
+
+	/// render the smooth curves using 1/4 ellipses    
+	ctx.beginPath();
+
+	for (var isFirst = true, /// first point is moveTo, rest lineTo
+		angle = 1.5 * Math.PI, /// start angle in radians
+		goal = 2 * Math.PI, /// goal angle
+		x, y; angle < goal; angle += steps) {
+
+		/// calculate x and y using cos/sin
+		x = c1.x + mx * Math.cos(angle);
+		y = c1.y + my * Math.sin(angle);
+
+		/// move or draw line
+		(isFirst) ? ctx.moveTo(x, y): ctx.lineTo(x, y);
+		isFirst = false;
+	}
+
+	/// second box    
+	for (var isFirst = true,
+		angle = Math.PI,
+		goal = 0.5 * Math.PI,
+		x, y; angle > goal; angle -= steps) {
+
+		x = c2.x + mx * Math.cos(angle);
+		y = c2.y + my * Math.sin(angle);
+
+		(isFirst) ? ctx.moveTo(x, y): ctx.lineTo(x, y);
+		isFirst = false;
+	}
+	ctx.stroke();
+}
+
+var shiftdown = false
+
+document.addEventListener('keydown', function(event) {
+
+	if (event.key == '0'){
+    	components.push(new component(mx,my, 'switch'))
+    }
+    if (event.key == '1'){
+    	components.push(new component(mx,my, 'output'))
+    }
+    if (event.key == '2'){
+    	components.push(new component(mx,my, 'xor'))
+    }
+    if (event.key == '3'){
+    	components.push(new component(mx,my, 'nor'))
+    }
+    if (event.key == '4'){
+    	components.push(new component(mx,my, 'and'))
+    }
+    if (event.key == '5'){
+    	components.push(new component(mx,my, 'or'))
+    }
+    // if (event.key == '6'){
+    // 	components.push(new component(mx,my,'repeater'))
+    // }
+    // if (event.key == '7'){
+    // 	components.push(new component(mx,my,'integrated'))
+    // }
+    if (event.key == 'Delete'){
+    	for(i of selected.slice()){
+    		if (i.constructor.name == 'wire' && wires.includes(i) ){
+    			//When you delete a wire, switch off
+    			wires.splice(wires.indexOf(i),1)
+    			i.state = false
+    			i.propagate_state()
+    		}
+    		if (i.constructor.name == 'component' && components.includes(i)){
+    			for (j of wires.slice()){
+    				console.log(j)
+    				if (wires.includes(j) && (j.origin == i || j.destination== i )){
+    					wires.splice(wires.indexOf(j),1)
+    				}
+    			}
+    			components.splice(components.indexOf(i),1)
+    		}
+    	}
+    }
+    if (selected.length>0){
+	    if(selected[0].gate_type == 'switch'){
+	    	//if (/^[a-z0-9 ]$/i.test(event.key)){
+	    	if(event.key.length == 1){
+	    		selected[0].input_labels[0] += event.key 
+	    	}
+	    	if (event.key == 'Backspace'){
+	    		selected[0].input_labels[0] = selected[0].input_labels[0].slice(0, -1);
+	    	}
+	    }
+	    if(selected[0].gate_type == 'output'){
+	    	if(event.key.length == 1){
+	    		selected[0].output_labels[0] += event.key 
+	    	}
+	    	if (event.key == 'Backspace'){
+	    		selected[0].output_labels[0] = selected[0].output_labels[0].slice(0, -1);
+	    	}
+	    }
+		}
+		if(event.key == 'Shift'){ shiftdown = true }
+});
+document.addEventListener('keyup', function(event) { if(event.key == 'Shift'){ shiftdown = false } });
+
+// Handle Mouse
+canvas.addEventListener('mousemove', onMouseUpdate, false);
+canvas.addEventListener('mouseenter', onMouseUpdate, false);
+var mx = null; var my = null; md = false; mco = null; mcox = null;mcoy = null;
+var new_wire_origin = null
+var new_wire_origin_num = null
+var origins={}
+function onMouseUpdate(e) {
+  var rect = canvas.getBoundingClientRect();
+  // mx = e.clientX - rect.left;
+  // my = e.clientY - rect.top;
+  mx = originx + (e.clientX - rect.left)/scale
+  my = originy + (e.clientY - rect.top)/scale
+  if (md && mco){
+  	ox = mx - mox
+  	oy = my - moy
+  	if (selected.includes(mco)){
+  		for (s in selected){
+  			if (selected[s].constructor.name == 'component'){
+	  			if (!Object.keys(origins).map(x=>x.toString()).includes(s)) {
+	  				console.log(s,Object.keys(origins).map(x=>+x),Object.keys(origins).map(x=>+x).includes(s)	)
+	  				origins[s] = {'x': selected[s].x, 'y': selected[s].y }
+	  			}
+	  			else{
+	  				selected[s].x = origins[s].x + (mx - mox)
+	  				selected[s].y = origins[s].y + (my - moy)
+	  			}
+	  			//console.log(s)
+	  		}
+  		}
+  	}
+  	else{
+  		mco.x = mcox + (mx - mox)
+  		mco.y = mcoy + (my - moy)
+  	}
+  }
+}
+
+drag = false
+
+canvas.onmousedown = function(e){
+	// console.log('Button',e.which)
+	mox = mx
+	moy = my
+	md = true
+	none = true
+	for (i of components.slice()){
+		if (i.out_collision(mx,my) != undefined){
+			new_wire_origin = i;
+			new_wire_origin_num = i.out_collision(mx,my)
+
+			none = false
+		} 
+		else if (i.collision(mx,my)){
+			components.splice(components.indexOf(i),1)
+			components.push(i)
+
+			mco = i;
+			mcox = i.x;
+			mcoy = i.y;
+
+			none = false
+		}
+	}
+	if (none){
+		for (i of wires.slice()){
+			if (i.collision(mx,my) && !selected.includes(i)){
+				selected.push(i)
+				none=false
+			}
+		}
+	}
+
+	if (none){
+		selected = []
+		drag = true
+	}
+
+}
+canvas.onmouseup = function(e){
+	for (i of components){
+		if (i.collision(mx,my)){
+			if (mco == i && (mx - mox) == 0 && (my - moy) == 0 && i.gate_type == 'switch'){
+				i.toggle()
+			}
+		}
+		if (new_wire_origin != null){
+			if (i.in_collision(mx,my) != undefined){
+				wires.push(new wire(new_wire_origin,i,i.in_collision(mx,my),new_wire_origin_num))
+				//console.log(new_wire_origin_num,i.in_collision(mx,my))
+				if (shiftdown){
+					//console.log(new_wire_origin_num+1,new_wire_origin_num+new_wire_origin.output_states.length-new_wire_origin_num)
+					//console.log(i.input_states.length)
+					for (ii=new_wire_origin_num+1; ii<(new_wire_origin.output_states.length); ii++ ){
+						//console.log(ii-new_wire_origin_num+i.in_collision(mx,my),i.input_states.length)
+						//console.log(ii,ii-new_wire_origin_num+i.in_collision(mx,my))
+						//wires.push(new wire(new_wire_origin,i,i.in_collision(mx,my)+ii,new_wire_origin_num+ii))
+
+						if (ii-new_wire_origin_num+i.in_collision(mx,my)<i.input_states.length){
+							wires.push(new wire(new_wire_origin,i,ii-new_wire_origin_num+i.in_collision(mx,my),ii))
+						}
+					}
+				}
+				new_wire_origin.propagate_state()
+				new_wire_origin = null
+			}
+		}
+	}
+	new_wire_origin = null
+	md = false;
+	mco = null;
+	origins={};
+	if (drag == true){
+		for (i of components){
+			if (Math.min(mox,mx) < i.x + i.width && Math.max(mox,mx) > i.x &&
+				Math.min(moy,my) < i.y + i.width && Math.max(moy,my) > i.y && !selected.includes(i)) {
+				selected.push(i)
+			}
+		}
+		drag = false
+	}
+}
+
+var components = []
+var wires = []
+
+function add_component(name){
+	components.push(new component(350+Math.random()*210,350+Math.random()*110,name))
+}
+
+class wire {
+    constructor(origin, destination, dnum = 0, onum = 0) {
+        this.origin = origin;
+        this.destination = destination;
+        this.state = false;
+        this.dnum = dnum;
+        this.onum = onum;
+        this.unpropated = false;
+    }
+
+	propagate_state() { // Tell the next component to propogate
+		this.unpropated = false
+		this.destination.update_input_states(this.dnum,this.state)
+	}
+
+	draw() {
+		ctx.lineCap = 'round'
+		ctx.lineWidth  = 10
+		//if (this.origin.evaluate_state() == true){
+		if (this.state == true){
+			ctx.strokeStyle  = '#0a86ea'
+		}
+		else{
+			ctx.strokeStyle  = 'grey'
+		}
+
+		if (selected.includes(this)){
+			ctx.shadowColor = '#0a86ea';
+			ctx.shadowBlur = 5;
+		}
+		ctx.beginPath();
+		ctx.moveTo(this.origin.output_x(this.onum), this.origin.output_y(this.onum));
+		ctx.lineTo(this.destination.input_x(this.dnum), this.destination.input_y(this.dnum));
+		// plot(origin.output_x(this.onum), origin.output_y(this.onum),destination.input_x(this.dnum), destination.input_y(this.dnum));
+		ctx.stroke();
+		if (selected.includes(this)){
+			ctx.shadowColor = "rgba(0, 0, 0, 0)";
+			ctx.shadowBlur = 0;
+		}
+	}
+
+	// Used to check if mouese press has clicked on the wire
+	collision(msx, msy) {
+		var x = msx
+		var y = msy
+		var x1 = this.origin.output_x(this.onum)
+		var y1 = this.origin.output_y(this.onum)
+		var x2 = this.destination.input_x(this.dnum)
+		var y2 = this.destination.input_y(this.dnum)
+
+		var A = x - x1;
+		var B = y - y1;
+		var C = x2 - x1;
+		var D = y2 - y1;
+
+		var dot = A * C + B * D;
+		var len_sq = C * C + D * D;
+		var param = -1;
+		if (len_sq != 0) //in case of 0 length line
+			param = dot / len_sq;
+
+		var xx, yy;
+
+		if (param < 0) {
+			xx = x1;
+			yy = y1;
+		}
+		else if (param > 1) {
+			xx = x2;
+			yy = y2;
+		}
+		else {
+			xx = x1 + param * C;
+			yy = y1 + param * D;
+		}
+
+		var dx = x - xx;
+		var dy = y - yy;
+
+		return Math.sqrt(dx * dx + dy * dy) < 5;
+	}
+}
+
+label_font = "10px Consolas"
+
+
+function component(x,y,gate_type='switch',p=null,internal_components=[],internal_wires=[],name=null,input_labels=[],output_labels=[],num_inputs=2){
+	this.x = x
+	this.y = y
+	this.width = 100
+
+	this.initial_propogation = false
+
+	//console.log('gt:',gate_type,'p:',p,'ic:',internal_components,'iw:',internal_wires,'name:',name,'inp_lab:',input_labels,'out_lab:',output_labels)
+
+	this.input_label = 'placeholder_input'
+	this.output_label = 'placeholder_output'
+ 
+	this.gate_type = gate_type
+
+	// Integrated Circuits
+	this.internal_components = internal_components
+	this.internal_wires = internal_wires
+	this.num_inputs = num_inputs
+	this.named = name
+
+	tan = false
+
+	for (i of internal_components){
+		if (tan == false){
+			console.log('propogating',this.gate_type)
+			tan=true
+		}
+		i.p = this
+		i.p_components = this.internal_components
+		i.p_wires = this.internal_wires
+		if (i.gate_type == 'switch' || i.gate_type.includes('const')){
+			i.propagate_state()
+		}
+	}
+
+	this.p = p
+	if (p == null){
+		this.p_components = components
+		this.p_wires = wires
+	}
+
+	this.input_states = [false]
+	this.output_states = [false]
+
+	if (this.gate_type!='switch' && this.gate_type!='not' && this.gate_type!='output' && this.gate_type!='clock'){
+		//this.input_states = [null,null]
+		this.input_states = [false,false]
+	}
+
+	if (this.gate_type=='and' || this.gate_type == 'or'){
+		this.input_states =Array(this.num_inputs).fill(false)
+	}
+	if (this.gate_type=='const 0'){
+		this.input_states = [false]
+		this.output_states = [false]
+	}
+	if (this.gate_type=='const 1'){
+		this.input_states = [false]
+		this.output_states = [true]
+	}
+
+	if (this.gate_type == 'repeater'){
+		this.input_states = [false,false,false]
+		this.output_states = [false,false,false]
+	}
+
+	if (this.gate_type == 'integrated'){
+		this.input_states = this.internal_components.filter((obj) => obj.gate_type === 'switch').map((obj) => obj.output_states[0])
+		this.output_states = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.input_states[0])
+		this.input_labels = this.internal_components.filter((obj) => obj.gate_type === 'switch').map((obj) => obj.input_labels[0])
+		this.output_labels = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.output_labels[0])
+	}
+	else{
+		this.input_labels = this.input_states.map(()=> '')
+		this.output_labels = this.input_states.map(()=> '')
+	}
+	
+	//replaces part of array with elements of another array
+	Array.prototype.splice.apply(this.input_labels, [0, input_labels.length].concat(input_labels));
+	Array.prototype.splice.apply(this.output_labels , [0, output_labels.length].concat(output_labels));
+
+	// get longest
+	//Math.max.apply(Math, array.map((e) => e.length ));
+
+	// Class Methods
+
+	// Methods to compute the position of the input/output circles on the component (for the UI)
+	this.input_x = (n=0) => { ctx.font = label_font; return this.x - ctx.measureText(this.input_labels[n]).width - 7*(this.input_label ? 1:0) }
+	this.input_y = (n) => { return this.y + (this.width/(this.input_states.length+1))*(n+1) }
+	this.output_x = (n=0) => { ctx.font = label_font; return this.x + this.width + ctx.measureText(this.output_labels[n]).width + 7*(this.output_label ? 1:0) }
+	this.output_y = (n) => { return this.y + (this.width/(this.output_states.length+1))*(n+1) }
+
+	// Method to evaluate the state of the component based on its gate type
+	this.evaluate_state = () => { 
+		if (this.gate_type == 'const 0'){
+			return this.output_states.map( () => false)
+		}
+		if (this.gate_type == 'const 1'){
+			return this.output_states.map( () => true)
+		}
+		if (this.gate_type == 'not'){
+			return [!this.input_states[0]]
+		}
+		if (this.gate_type == 'or'){
+			//return [this.input_states[0] || this.input_states[1]]
+			return [this.input_states.includes(true)]
+		}
+		if (this.gate_type == 'nor'){
+			return [!(this.input_states[0] || this.input_states[1])]
+		}
+		if (this.gate_type == 'and'){
+			//return [this.input_states[0] && this.input_states[1]]
+			return [this.input_states.every(Boolean)]
+		}
+		if (this.gate_type == 'nand'){
+			return [!(this.input_states[0] && this.input_states[1])]
+		}
+		if (this.gate_type == 'xor'){
+			return [!(this.input_states[0] == this.input_states[1])]
+		}
+		if (this.gate_type == 'xnor'){
+			return [this.input_states[0] == this.input_states[1]]
+		}
+		if (this.gate_type == 'repeater'){
+			return this.input_states.slice()
+		}
+		if (this.gate_type == 'integrated'){
+			input_components = this.internal_components.filter((obj) => obj.gate_type === 'switch')
+			for (i=0; i<input_components.length;i++){
+				if (input_components[i].output_states[0] != this.input_states[i]){
+					input_components[i].output_states[0] = this.input_states[i]
+					input_components[i].propagate_state()
+				}
+			}
+			output = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.output_states[0])
+
+			return output
+		}
+		return [this.input_states[0]]
+	}
+
+	this.toggle = () => { 
+		this.output_states[0] = !this.output_states[0]
+		this.propagate_state()
+	}
+
+	this.collision = (msx,msy) => { 
+		if (msx > this.x && msx < this.x + this.width && 
+			msy > this.y && msy < this.y + this.width ){ return true}
+	}
+	
+
+	this.out_collision = (msx,msy) => { 
+		for (var i = 0; i < this.output_states.length; i++) {
+			if (Math.sqrt((msx-this.output_x(i))**2 + (msy-this.output_y(i))**2) < 7){
+				return i
+			}
+		}
+	}
+
+	this.in_collision = (msx,msy) => { 
+		for (var i = 0; i < this.input_states.length; i++) {
+			if (Math.sqrt((msx-this.input_x(i))**2 + (msy-this.input_y(i))**2) < 7){
+				return i
+			}
+		}
+	}
+
+	// these two functions need to be updated to add multiple outputs
+	this.update_input_states = function (in_num,value) {
+
+		// console.log('updating_input?',this.gate_type)
+		// need to add check that wire exists
+		this.input_states[in_num] = value
+
+		if ( !arraysMatch(this.output_states,this.evaluate_state()) || this.initial_propogation == false){
+
+			this.output_states = this.evaluate_state()
+
+
+			//change this for ic
+			connected_wires = this.p_wires.filter( (v, i, a) => { return v.destination == this })
+
+			any_unpropogated = false
+
+			for (i of connected_wires){
+				if (i.unpropated){
+					any_unpropogated=true
+				}
+			}
+
+			if (any_unpropogated){
+				console.log('Error Unpropagated wires')
+			}
+
+			// any_unpropogated=false
+			// for (i of connected_wires){
+			// 	if (this.gate_type == 'and' && this.num_inputs == 3){
+			// 		console.log('candle2',i,JSON.stringify(i.unpropated))
+			// 	}
+			// 	if (i.unpropated){
+			// 		console.log('flame',i.unpropated)
+			// 		any_unpropogated=true
+			// 	}
+			// }
+
+			// if (this.gate_type == 'and' && this.num_inputs == 3){
+			// 	console.log('cake',this.output_states,connected_wires,any_unpropogated)
+			// }
+
+			if (any_unpropogated == false || this.initial_propogation == false){
+				//console.log('initial?',this.gatetype,this.initial_propogation)
+				this.initial_propogation = true
+				this.propagate_state()
+			}
+		}
+
+	}
+
+	this.propagate_state = function () { // updates state of wires connected and notifies the wire
+		//console.log('propagating?',this.gate_type,this.initial_propogation)
+		//change this for ic
+		wires_to_propagate = this.p_wires.filter( (v, i, a) => { return v.origin == this })
+
+		// for (w of wires_to_propagate){
+		// 	w.unpropated = true
+		// }
+		// for (w of wires_to_propagate){
+		// 	//console.log(this.gate_type,w,w.onum,this.output_states[w.onum])
+		// 	w.state = this.output_states[w.onum]
+		// 	w.propagate_state();
+		// }
+
+		for (w of wires_to_propagate){
+			w.unpropated = true
+			w.state = this.output_states[w.onum]
+			w.propagate_state();
+			if (w.unpropated == true){
+				console.log('Error, wire failed to propogate')
+			}
+		}
+
+	}
+
+	this.draw = function () {
+		ctx.lineWidth  = 5
+		ctx.strokeStyle  = 'black'
+		ctx.fillStyle  = 'white'
+		if (this.gate_type == 'output'){
+			////if (this.state == true){
+			if (this.output_states[0] == true){
+				ctx.fillStyle  = '#03abff'
+			}
+			else{
+				ctx.fillStyle  = 'lightgrey'
+			}
+		}
+		// if (this.gate_type == 'switch' || this.gate_type == 'clock'){
+		// 	////if (this.state == true){
+		// 	if (this.output_states[0] == true){
+		// 		ctx.strokeStyle  = '#0a86ea'
+		// 	}
+		// 	else{
+		// 		ctx.strokeStyle  = 'black'
+		// 	}
+		// }
+		if (selected.includes(this)){
+			ctx.shadowColor = '#0a86ea';
+			ctx.shadowBlur = 5;
+		}
+		ctx.fillRect(this.x, this.y, this.width, this.width);
+		ctx.strokeRect(this.x, this.y, this.width, this.width);
+		if (selected.includes(this)){
+			ctx.shadowColor = "rgba(0, 0, 0, 0)";
+			ctx.shadowBlur = 0;
+		}
+
+
+		ctx.font = "18px Consolas";
+		ctx.fillStyle = "black";
+		ctx.textBaseline = 'middle';
+		ctx.textAlign = 'center';
+		if (this.gate_type != 'output'){
+			if (this.named != null){
+				ctx.fillText(this.named, this.x+this.width/2, this.y+this.width/2)
+			}
+			else{
+				ctx.fillText(this.gate_type.toUpperCase(), this.x+this.width/2, this.y+this.width/2)
+			}
+		}
+
+		ctx.lineWidth  = 1.5 //used to be 2
+		ctx.fillStyle = "white";
+
+		ctx.font = label_font;
+		ctx.textAlign = "left";
+
+		for (var i = 0; i < this.output_states.length; i++) {
+			ctx.fillStyle = "white";
+
+			this.output_label = this.output_labels[i]
+
+			tm = ctx.measureText(this.output_label)
+			center_offset = (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent)/2 - tm.actualBoundingBoxDescent
+			ctx.roundRect(this.x + this.width - 7,this.output_y(i)-7,7*2+(this.output_label ? 1:0)*(7+tm.width),14,7)
+			ctx.fill();
+			ctx.stroke();
+
+			//Output Circle
+			ctx.beginPath();
+			ctx.arc(this.output_x(i), this.output_y(i), 7, 0, 2 * Math.PI); //x,y,radius
+			ctx.fill();
+			ctx.stroke();
+
+			//Draw Text
+			ctx.fillStyle = "black";
+			ctx.fillText(this.output_label, this.x + this.width - 3.5 , this.output_y(i)+center_offset);
+		}
+
+		for (var i = 0; i < this.input_states.length; i++) {
+			ctx.fillStyle = "white";
+
+			this.input_label = this.input_labels[i]
+
+			tm = ctx.measureText(this.input_label)
+			center_offset = (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent)/2 - tm.actualBoundingBoxDescent
+			//adjusted_width = 2*(1-tm.actualBoundingBoxLeft) + tm.actualBoundingBoxRight
+			ctx.roundRect(this.input_x(i)-7,this.input_y(i)-7,7*2+(this.input_label ? 1:0)*(7+tm.width),14,7)
+			ctx.fill();
+			ctx.stroke();
+
+			//Input circle
+			ctx.beginPath();
+			ctx.arc(this.input_x(i), this.input_y(i), 7, 0, 2 * Math.PI); //x,y,radius
+			ctx.fill();
+			ctx.stroke();
+
+			// ctx.roundRect(this.input_x()-7,this.input_y(i)-7,14,14,7)
+			// ctx.fill();
+			// ctx.stroke();
+
+			//dots for positioning
+			// ctx.fillStyle = "black"
+			// ctx.beginPath();
+			// ctx.arc(this.input_x()+7+2 , this.input_y(i), 0.1, 0, 2 * Math.PI); //x,y,radius
+			// ctx.fill();
+
+			// ctx.fillStyle = "black"
+			// ctx.beginPath();
+			// ctx.arc(this.input_x()+7+2 +tm.width, this.input_y(i), 0.1, 0, 2 * Math.PI); //x,y,radius
+			// ctx.fill();
+
+			ctx.fillStyle = "black";
+			ctx.fillText(this.input_label, this.input_x(i)+7+3.5 , this.input_y(i)+center_offset);
+
+			// ctx.textAlign = "start";
+		}
+	}
+}
+
+
+for (i of components){
+	if (i.gate_type == 'switch' || i.gate_type.includes('const')){
+		i.propagate_state()
+	}
+}
+
+
+// From https://stackoverflow.com/questions/1255512/how-to-draw-a-rounded-rectangle-using-html-canvas
+CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+  if (w < 2 * r) r = w / 2;
+  if (h < 2 * r) r = h / 2;
+  this.beginPath();
+  this.moveTo(x+r, y);
+  this.arcTo(x+w, y,   x+w, y+h, r);
+  this.arcTo(x+w, y+h, x,   y+h, r);
+  this.arcTo(x,   y+h, x,   y,   r);
+  this.arcTo(x,   y,   x+w, y,   r);
+  this.closePath();
+  return this;
+}
+
+frame_rate = 60
+continuee = true
+frame = 0
+setInterval(function(){
+
+	if (continuee){
+
+	ctx.fillStyle = 'lightgrey'
+	ctx.fillRect(originx, originy, canvas.width/scale, canvas.height/scale)
+	//ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+	if (new_wire_origin != null){
+		ctx.lineCap = 'round'
+		ctx.lineWidth  = 10
+		ctx.strokeStyle  = 'grey'
+		ctx.beginPath();
+		ctx.moveTo(new_wire_origin.output_x(new_wire_origin_num), new_wire_origin.output_y(new_wire_origin_num));
+		ctx.lineTo(mx, my);
+		ctx.stroke();
+
+		//console.log(new_wire_origin.output_states.length-1-new_wire_origin_num)
+		if (shiftdown){
+			for (i=new_wire_origin_num+1; i<(new_wire_origin.output_states.length); i++ ){
+				ctx.beginPath();
+				ctx.moveTo(new_wire_origin.output_x(i), new_wire_origin.output_y(i));
+				ctx.lineTo(mx, my+(new_wire_origin.output_y(i)-new_wire_origin.output_y(new_wire_origin_num)));
+				ctx.stroke();
+			}
+		}
+	}
+
+	for (i of wires){ i.draw() }
+	for (i of components){ i.draw() }
+
+	if (drag){
+		ctx.fillStyle = 'rgba(66, 135, 245,0.3)';
+		ctx.fillRect(mox,moy,mx-mox,my-moy);
+	}
+
+	if (frame >= frame_rate){
+		frame=0
+		components.filter((obj) => obj.gate_type === 'clock').map((obj) => obj.toggle())
+	}
+	else{
+		frame+=1
+	}
+	
+	}
+
+}, 1000/frame_rate);
+
+
+function save(sort=false){
+	file = {'components': [],
+			'wires': []
+	}
+	if (sort){
+		components.sort( (a,b) => a.y - b.y)
+	}
+
+	for (c of components){
+		if (c['gate_type']=='integrated'){
+			file['components'].push(JSON.parse(integrated_circuit_export(c)))
+		}
+		else{
+			file['components'].push( 
+			{'x': c.x,
+			 'y': c.y,
+			 'gate_type' : c.gate_type,
+			 'input_labels': c.input_labels,
+			 'output_labels': c.output_labels,
+			 'num_inputs': c.num_inputs
+			}
+			)
+		}
+	}
+	for (w of wires){
+		file['wires'].push( 
+			{'origin': components.indexOf(w.origin),
+			 'destination': components.indexOf(w.destination),
+			 'dnum' : w.dnum,
+			 'onum' : w.onum}
+		)
+	}
+	return JSON.stringify(file)
+}
+
+function load(file){
+	data = JSON.parse(file)
+	components = []
+	wires = []
+
+
+	for (c of data['components']){
+		if (c['gate_type']=='integrated'){
+			components.push(integrated_circuit_setup(c))
+		}
+		else{
+			//this would need to change if i changed optional peramaters
+			components.push(new component(c['x'],c['y'],c['gate_type'],null,[],[],null,input_labels=c['input_labels'],output_labels=c['output_labels'],num_inputs=c['num_inputs']))
+		}
+	}
+
+	for (w of data['wires']){
+		wires.push(new wire(
+							components[w['origin']],
+							components[w['destination']],
+							w['dnum'], w['onum'])
+							)
+	}
+
+	//duplicated code from line 333
+	for (i of components){
+		//console.log(i)
+		if (i.gate_type == 'switch' || i.gate_type.includes('const')){
+			i.propagate_state()
+		}
+	}
+	// for (i of components){
+	// 	i.propagate_state()
+	// }
+}
+
+integrated_circuit_blueprints = {}
+
+function integrated_circuit_setup(text,n=null){
+	if (typeof(text) == 'string'){
+		text = JSON.parse(text)
+	}
+
+	if (n == null){
+		n = text['name']
+	}
+
+	// console.log('k',text)
+
+	var cs = []
+	var ws = []
+
+	if (Object.keys(text).indexOf('internal') > 0){
+		text['components'] = text['internal']['components']
+		text['wires'] = text['internal']['wires']
+	}
+	else{
+		text['x'] = 200
+		text['y'] = 200
+	}
+
+	for (i of text['components']){
+		if (i.gate_type == 'integrated'){
+			c = integrated_circuit_setup(i)
+		}
+		else{
+			//would also need to change if i changed optional 
+			c = new component(i['x'],i['y'],i['gate_type'],null,[],[],null,input_labels=i['input_labels'],output_labels=i['output_labels'],num_inputs=i['num_inputs'])
+		}
+		cs.push(c)
+	}
+	for (i of text['wires']){
+		ws.push(new wire(cs[i['origin']],
+						cs[i['destination']],
+						i['dnum'], i['onum']))
+	}
+	return new component(text['x'],text['y'],'integrated',null,internal_components=cs,internal_wires=ws,name=n,input_labels=text['input_labels'],output_labels=text['output_labels'])
+}
+
+function integrated_circuit_export(component){
+	exported_component = {'x' : component.x,
+			'y' : component.y,
+			'gate_type' : component.gate_type,
+			'name' : component.named,
+			'input_labels':component.input_labels,
+			'output_labels':component.output_labels,
+			'num_inputs':component.num_inputs
+			}
+	internal = {'components': [],
+			'wires': []
+	}
+	for (c of component.internal_components){
+		if (c.gate_type == 'integrated'){
+			internal['components'].push(integrated_circuit_export(c))
+		}
+		else{
+			internal['components'].push( 
+			{'x': c.x,
+			 'y': c.y,
+			 'gate_type' : c.gate_type,
+			 'input_labels':c.input_labels,
+			'output_labels':c.output_labels,
+			'num_inputs':c.num_inputs})
+		}
+		
+	}
+	for (w of component.internal_wires){
+		internal['wires'].push( 
+			{'origin': component.internal_components.indexOf(w.origin),
+			 'destination': component.internal_components.indexOf(w.destination),
+			 'dnum' : w.dnum,
+			 'onum' : w.onum}
+		)
+	}
+
+	exported_component['internal'] = internal
+
+	return JSON.stringify(exported_component)
+}
+
+load(localStorage.getItem("button_save"))
+</script>
