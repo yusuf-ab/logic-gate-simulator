@@ -21,8 +21,7 @@
 		<button onclick='load(localStorage.getItem("button_save"))'>📥 from Storage</button>
 	<br>
 	<br>
-		<button onclick='temp = JSON.parse(localStorage.getItem("saved_ics")); 
-		temp.push(JSON.parse(integrated_circuit_export(integrated_circuit_setup(save(true),name=prompt("Enter Name"))))); localStorage.setItem("saved_ics",JSON.stringify(temp));'>Create IC</button>
+		<button onclick='createIC()'>Create IC</button>
 		<button onclick='localStorage.setItem("saved_ics",JSON.stringify([]))'>Clear ICs</button>
 		<button onclick='localStorage.setItem("saved_ics",JSON.stringify(JSON.parse(localStorage.getItem("saved_ics")).slice(0,-1)))'>Remove last IC</button>
 		<button onclick='load(JSON.stringify(JSON.parse(localStorage.getItem("saved_ics"))[parseInt(prompt("Enter Number:"))].internal))'>Load Inside IC</button>
@@ -78,15 +77,32 @@ button:hover {
 </style>
 <style>body { margin:0; }</style>
 <script>
-
-if (localStorage.getItem("saved_ics") == null){
-	localStorage.setItem("saved_ics",JSON.stringify([]))
-}
-for (ic of JSON.parse(localStorage.getItem('saved_ics'))){
+function addIC(ic){
 	var newButton = document.createElement("button")
 	newButton.innerHTML = ic['name']
 	newButton.setAttribute("onclick", "components.push(integrated_circuit_setup("+JSON.stringify(ic)+"))")
 	document.getElementById("menu").appendChild(newButton)
+}
+function createIC() {
+    var temp = JSON.parse(localStorage.getItem("saved_ics"));
+    var component_name = prompt("Enter Name");
+	if (component_name == ''){
+		return;
+	}
+    
+    var setup = integrated_circuit_setup(save(true), n=component_name);
+    var exported = JSON.parse(integrated_circuit_export(setup));
+    
+    temp.push(exported);
+    localStorage.setItem("saved_ics", JSON.stringify(temp));
+	addIC(exported)
+}
+
+if (localStorage.getItem("saved_ics") == null){
+	localStorage.setItem("saved_ics",JSON.stringify([]))
+}
+for (var ic_i of JSON.parse(localStorage.getItem('saved_ics'))){
+	addIC(ic_i)
 }
 
 //load(JSON.stringify(JSON.parse(localStorage.getItem('saved_ics'))[1].internal))
@@ -147,56 +163,6 @@ canvas.onwheel = function(event) {
     visibleHeight = canvas.height / scale;
 };
 
-
-//  Unused function for testing curved lines https://stackoverflow.com/questions/20353677/drawing-a-smooth-curved-arc-between-two-points
-function plot(x1,y1,x2,y2){
-  var ctx = canvas.getContext('2d'),
-    p1 = { x: x1, y: y1}, /// point 1
-    p2 = { x: x2, y: y2}, /// point 2
-    mx = (p2.x - p1.x) * 0.5, /// mid-point between point 1 and 2
-    my = (p2.y - p1.y) * 0.5,
-    c1 = { x: p1.x, y: p1.y + my}, /// create center point objects
-    c2 = {x: p2.x, y: p2.y - my},
-    steps = 0.05; /// curve resolution
-
-    /// mark the points and the boxes which represent the center of those
-	// ctx.fillStyle = '#ff6e6e';
-	// ctx.fillRect(p1.x, p1.y, mx, my);
-	// ctx.fillStyle = '#6e93ff';
-	// ctx.fillRect(p1.x + mx, p1.y + my, mx, my);
-
-	/// render the smooth curves using 1/4 ellipses    
-	ctx.beginPath();
-
-	for (var isFirst = true, /// first point is moveTo, rest lineTo
-		angle = 1.5 * Math.PI, /// start angle in radians
-		goal = 2 * Math.PI, /// goal angle
-		x, y; angle < goal; angle += steps) {
-
-		/// calculate x and y using cos/sin
-		x = c1.x + mx * Math.cos(angle);
-		y = c1.y + my * Math.sin(angle);
-
-		/// move or draw line
-		(isFirst) ? ctx.moveTo(x, y): ctx.lineTo(x, y);
-		isFirst = false;
-	}
-
-	/// second box    
-	for (var isFirst = true,
-		angle = Math.PI,
-		goal = 0.5 * Math.PI,
-		x, y; angle > goal; angle -= steps) {
-
-		x = c2.x + mx * Math.cos(angle);
-		y = c2.y + my * Math.sin(angle);
-
-		(isFirst) ? ctx.moveTo(x, y): ctx.lineTo(x, y);
-		isFirst = false;
-	}
-	ctx.stroke();
-}
-
 var shiftdown = false
 
 document.addEventListener('keydown', function(event) {
@@ -219,12 +185,16 @@ document.addEventListener('keydown', function(event) {
     if (event.key == '5'){
     	components.push(new component(mx,my, 'or'))
     }
-    // if (event.key == '6'){
-    // 	components.push(new component(mx,my,'repeater'))
-    // }
+    if (event.key == '6'){
+    	components.push(new component(mx,my,'repeater'))
+    }
     // if (event.key == '7'){
     // 	components.push(new component(mx,my,'integrated'))
     // }
+	if (event.ctrlKey && event.key === 'a') { // Select all components
+        event.preventDefault();
+        selected = components.slice().concat(wires.slice()) 
+    }
     if (event.key == 'Delete'){
     	for(i of selected.slice()){
     		if (i.constructor.name == 'wire' && wires.includes(i) ){
@@ -270,9 +240,12 @@ document.addEventListener('keyup', function(event) { if(event.key == 'Shift'){ s
 // Handle Mouse
 canvas.addEventListener('mousemove', onMouseUpdate, false);
 canvas.addEventListener('mouseenter', onMouseUpdate, false);
-var mx = null; var my = null; md = false; mco = null; mcox = null;mcoy = null;
-var new_wire_origin = null
-var new_wire_origin_num = null
+
+// mx,my - Mouse coodinates, md - Mouse Down, mco - Component being moved, mcox,mcoy  - Coodinates of component being moved
+var mx = null; var my = null; md = false; mco = null; mcox = null; mcoy = null;
+var new_wire_origin = null // Origin component of new wire
+var new_wire_io = null // Input/Output number the wire is connected at the origin component
+var new_wire_type = null // Either source (from an output) or destination wire (from an input)
 var origins={}
 function onMouseUpdate(e) {
   var rect = canvas.getBoundingClientRect();
@@ -287,14 +260,13 @@ function onMouseUpdate(e) {
   		for (s in selected){
   			if (selected[s].constructor.name == 'component'){
 	  			if (!Object.keys(origins).map(x=>x.toString()).includes(s)) {
-	  				console.log(s,Object.keys(origins).map(x=>+x),Object.keys(origins).map(x=>+x).includes(s)	)
+	  				//console.log(s,Object.keys(origins).map(x=>+x),Object.keys(origins).map(x=>+x).includes(s)	)
 	  				origins[s] = {'x': selected[s].x, 'y': selected[s].y }
 	  			}
 	  			else{
 	  				selected[s].x = origins[s].x + (mx - mox)
 	  				selected[s].y = origins[s].y + (my - moy)
 	  			}
-	  			//console.log(s)
 	  		}
   		}
   	}
@@ -316,11 +288,20 @@ canvas.onmousedown = function(e){
 	for (i of components.slice()){
 		if (i.out_collision(mx,my) != undefined){
 			new_wire_origin = i;
-			new_wire_origin_num = i.out_collision(mx,my)
+			new_wire_io = i.out_collision(mx,my)
+			new_wire_type = 'source'
+
+			none = false
+		} 
+		else if (i.in_collision(mx,my) != undefined){
+			new_wire_origin = i;
+			new_wire_io = i.in_collision(mx,my)
+			new_wire_type = 'destination'
 
 			none = false
 		} 
 		else if (i.collision(mx,my)){
+			// Bring the selected component to the front so it renders before other components
 			components.splice(components.indexOf(i),1)
 			components.push(i)
 
@@ -354,23 +335,40 @@ canvas.onmouseup = function(e){
 			}
 		}
 		if (new_wire_origin != null){
-			if (i.in_collision(mx,my) != undefined){
-				wires.push(new wire(new_wire_origin,i,i.in_collision(mx,my),new_wire_origin_num))
-				//console.log(new_wire_origin_num,i.in_collision(mx,my))
-				if (shiftdown){
-					//console.log(new_wire_origin_num+1,new_wire_origin_num+new_wire_origin.output_states.length-new_wire_origin_num)
-					//console.log(i.input_states.length)
-					for (ii=new_wire_origin_num+1; ii<(new_wire_origin.output_states.length); ii++ ){
-						//console.log(ii-new_wire_origin_num+i.in_collision(mx,my),i.input_states.length)
-						//console.log(ii,ii-new_wire_origin_num+i.in_collision(mx,my))
-						//wires.push(new wire(new_wire_origin,i,i.in_collision(mx,my)+ii,new_wire_origin_num+ii))
+			var input_number = i.in_collision(mx,my)
+			var output_number =  i.out_collision(mx,my)
+			
 
-						if (ii-new_wire_origin_num+i.in_collision(mx,my)<i.input_states.length){
-							wires.push(new wire(new_wire_origin,i,ii-new_wire_origin_num+i.in_collision(mx,my),ii))
+			if (input_number != undefined && new_wire_type == "source"){
+				create_wire(new_wire_origin, i, input_number, new_wire_io)
+				
+				if (shiftdown){
+					//console.log(new_wire_io+1,new_wire_io+new_wire_origin.output_states.length-new_wire_io)
+					//console.log(i.input_states.length)
+					for (var ii = new_wire_io+1; ii< new_wire_origin.output_states.length; ii++ ){
+						//console.log(ii-new_wire_io+input_number,i.input_states.length)
+						//console.log(ii,ii-new_wire_io+input_number)
+						//wires.push(new wire(new_wire_origin,i,input_number+ii,new_wire_io+ii))
+
+						if (ii-new_wire_io+input_number< i.input_states.length){
+							create_wire(new_wire_origin,i,ii-new_wire_io+input_number,ii);
 						}
 					}
 				}
 				new_wire_origin.propagate_state()
+				new_wire_origin = null
+			}
+			if (output_number != undefined && new_wire_type == "destination"){
+				create_wire(i, new_wire_origin, new_wire_io, output_number)
+
+                if (shiftdown){
+                    for (var ii = new_wire_io+1; ii < new_wire_origin.input_states.length; ii++ ){
+                        if (ii-new_wire_io+output_number < i.output_states.length){
+                            create_wire(i, new_wire_origin, ii, ii-new_wire_io+output_number);
+                        }
+                    }
+                }
+				i.propagate_state()	
 				new_wire_origin = null
 			}
 		}
@@ -480,103 +478,107 @@ class wire {
 	}
 }
 
+function create_wire(origin, destination, dnum, onum){
+	if (!wires.some(i => i.origin == origin && i.destination == destination && i.onum == onum && i.dnum == dnum)){
+		wires.push(new wire(origin, destination, dnum, onum))
+	}
+}
+
 label_font = "10px Consolas"
 
+class component {
+	constructor(x, y, gate_type = 'switch', p = null, internal_components = [], internal_wires = [], name = null, input_labels = [], output_labels = [], num_inputs = 2) {
+		this.x = x
+		this.y = y
+		this.width = 100
 
-function component(x,y,gate_type='switch',p=null,internal_components=[],internal_wires=[],name=null,input_labels=[],output_labels=[],num_inputs=2){
-	this.x = x
-	this.y = y
-	this.width = 100
+		this.initial_propogation = false
 
-	this.initial_propogation = false
+		//console.log('gt:',gate_type,'p:',p,'ic:',internal_components,'iw:',internal_wires,'name:',name,'inp_lab:',input_labels,'out_lab:',output_labels)
 
-	//console.log('gt:',gate_type,'p:',p,'ic:',internal_components,'iw:',internal_wires,'name:',name,'inp_lab:',input_labels,'out_lab:',output_labels)
+		this.input_label = 'placeholder_input'
+		this.output_label = 'placeholder_output'
+	
+		this.gate_type = gate_type
 
-	this.input_label = 'placeholder_input'
-	this.output_label = 'placeholder_output'
- 
-	this.gate_type = gate_type
+		// Integrated Circuits
+		this.internal_components = internal_components
+		this.internal_wires = internal_wires
+		this.num_inputs = num_inputs
+		this.named = name
 
-	// Integrated Circuits
-	this.internal_components = internal_components
-	this.internal_wires = internal_wires
-	this.num_inputs = num_inputs
-	this.named = name
+		var tan = false
 
-	tan = false
-
-	for (i of internal_components){
-		if (tan == false){
-			console.log('propogating',this.gate_type)
-			tan=true
+		for (var i of internal_components){
+			if (tan == false){
+				console.log('propogating',this.gate_type)
+				tan=true
+			}
+			i.p = this
+			i.p_components = this.internal_components
+			i.p_wires = this.internal_wires
+			if (i.gate_type == 'switch' || i.gate_type.includes('const')){
+				i.propagate_state()
+			}
 		}
-		i.p = this
-		i.p_components = this.internal_components
-		i.p_wires = this.internal_wires
-		if (i.gate_type == 'switch' || i.gate_type.includes('const')){
-			i.propagate_state()
+
+		this.p = p
+		if (p == null){
+			this.p_components = components
+			this.p_wires = wires
 		}
-	}
 
-	this.p = p
-	if (p == null){
-		this.p_components = components
-		this.p_wires = wires
-	}
-
-	this.input_states = [false]
-	this.output_states = [false]
-
-	if (this.gate_type!='switch' && this.gate_type!='not' && this.gate_type!='output' && this.gate_type!='clock'){
-		//this.input_states = [null,null]
-		this.input_states = [false,false]
-	}
-
-	if (this.gate_type=='and' || this.gate_type == 'or'){
-		this.input_states =Array(this.num_inputs).fill(false)
-	}
-	if (this.gate_type=='const 0'){
 		this.input_states = [false]
 		this.output_states = [false]
-	}
-	if (this.gate_type=='const 1'){
-		this.input_states = [false]
-		this.output_states = [true]
-	}
 
-	if (this.gate_type == 'repeater'){
-		this.input_states = [false,false,false]
-		this.output_states = [false,false,false]
-	}
+		if (this.gate_type!='switch' && this.gate_type!='not' && this.gate_type!='output' && this.gate_type!='clock'){
+			//this.input_states = [null,null]
+			this.input_states = [false,false]
+		}
 
-	if (this.gate_type == 'integrated'){
-		this.input_states = this.internal_components.filter((obj) => obj.gate_type === 'switch').map((obj) => obj.output_states[0])
-		this.output_states = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.input_states[0])
-		this.input_labels = this.internal_components.filter((obj) => obj.gate_type === 'switch').map((obj) => obj.input_labels[0])
-		this.output_labels = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.output_labels[0])
-	}
-	else{
-		this.input_labels = this.input_states.map(()=> '')
-		this.output_labels = this.input_states.map(()=> '')
-	}
-	
-	//replaces part of array with elements of another array
-	Array.prototype.splice.apply(this.input_labels, [0, input_labels.length].concat(input_labels));
-	Array.prototype.splice.apply(this.output_labels , [0, output_labels.length].concat(output_labels));
+		if (this.gate_type=='and' || this.gate_type == 'or'){
+			this.input_states =Array(this.num_inputs).fill(false)
+		}
+		if (this.gate_type=='const 0'){
+			this.input_states = [false]
+			this.output_states = [false]
+		}
+		if (this.gate_type=='const 1'){
+			this.input_states = [false]
+			this.output_states = [true]
+		}
 
-	// get longest
-	//Math.max.apply(Math, array.map((e) => e.length ));
+		if (this.gate_type == 'repeater'){
+			this.input_states = [false,false,false]
+			this.output_states = [false,false,false]
+		}
 
-	// Class Methods
+		if (this.gate_type == 'integrated'){
+			this.input_states = this.internal_components.filter((obj) => obj.gate_type === 'switch').map((obj) => obj.output_states[0])
+			this.output_states = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.input_states[0])
+			this.input_labels = this.internal_components.filter((obj) => obj.gate_type === 'switch').map((obj) => obj.input_labels[0])
+			this.output_labels = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.output_labels[0])
+		}
+		else{
+			this.input_labels = this.input_states.map(()=> '')
+			this.output_labels = this.input_states.map(()=> '')
+		}
+		
+		//replaces part of array with elements of another array
+		Array.prototype.splice.apply(this.input_labels, [0, input_labels.length].concat(input_labels));
+		Array.prototype.splice.apply(this.output_labels , [0, output_labels.length].concat(output_labels));
+			// get longest
+		//Math.max.apply(Math, array.map((e) => e.length ));
+	}
 
 	// Methods to compute the position of the input/output circles on the component (for the UI)
-	this.input_x = (n=0) => { ctx.font = label_font; return this.x - ctx.measureText(this.input_labels[n]).width - 7*(this.input_label ? 1:0) }
-	this.input_y = (n) => { return this.y + (this.width/(this.input_states.length+1))*(n+1) }
-	this.output_x = (n=0) => { ctx.font = label_font; return this.x + this.width + ctx.measureText(this.output_labels[n]).width + 7*(this.output_label ? 1:0) }
-	this.output_y = (n) => { return this.y + (this.width/(this.output_states.length+1))*(n+1) }
+	input_x(n=0) { ctx.font = label_font; return this.x - ctx.measureText(this.input_labels[n]).width - 7*(this.input_label ? 1:0) }
+	input_y(n) { return this.y + (this.width/(this.input_states.length+1))*(n+1) }
+	output_x(n=0) { ctx.font = label_font; return this.x + this.width + ctx.measureText(this.output_labels[n]).width + 7*(this.output_label ? 1:0) }
+	output_y(n) { return this.y + (this.width/(this.output_states.length+1))*(n+1) }
 
 	// Method to evaluate the state of the component based on its gate type
-	this.evaluate_state = () => { 
+	evaluate_state() { 
 		if (this.gate_type == 'const 0'){
 			return this.output_states.map( () => false)
 		}
@@ -610,32 +612,31 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 			return this.input_states.slice()
 		}
 		if (this.gate_type == 'integrated'){
-			input_components = this.internal_components.filter((obj) => obj.gate_type === 'switch')
-			for (i=0; i<input_components.length;i++){
+			var input_components = this.internal_components.filter((obj) => obj.gate_type === 'switch')
+			for (var i=0; i<input_components.length;i++){
 				if (input_components[i].output_states[0] != this.input_states[i]){
 					input_components[i].output_states[0] = this.input_states[i]
 					input_components[i].propagate_state()
 				}
 			}
-			output = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.output_states[0])
+			var output = this.internal_components.filter((obj) => obj.gate_type === 'output').map((obj) => obj.output_states[0])
 
 			return output
 		}
 		return [this.input_states[0]]
 	}
 
-	this.toggle = () => { 
+	toggle() { 
 		this.output_states[0] = !this.output_states[0]
 		this.propagate_state()
 	}
 
-	this.collision = (msx,msy) => { 
+	collision(msx,msy) { 
 		if (msx > this.x && msx < this.x + this.width && 
 			msy > this.y && msy < this.y + this.width ){ return true}
 	}
 	
-
-	this.out_collision = (msx,msy) => { 
+	out_collision(msx,msy) { 
 		for (var i = 0; i < this.output_states.length; i++) {
 			if (Math.sqrt((msx-this.output_x(i))**2 + (msy-this.output_y(i))**2) < 7){
 				return i
@@ -643,7 +644,7 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 		}
 	}
 
-	this.in_collision = (msx,msy) => { 
+	in_collision(msx,msy) { 
 		for (var i = 0; i < this.input_states.length; i++) {
 			if (Math.sqrt((msx-this.input_x(i))**2 + (msy-this.input_y(i))**2) < 7){
 				return i
@@ -652,8 +653,7 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 	}
 
 	// these two functions need to be updated to add multiple outputs
-	this.update_input_states = function (in_num,value) {
-
+	update_input_states(in_num,value) {
 		// console.log('updating_input?',this.gate_type)
 		// need to add check that wire exists
 		this.input_states[in_num] = value
@@ -662,13 +662,12 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 
 			this.output_states = this.evaluate_state()
 
-
 			//change this for ic
-			connected_wires = this.p_wires.filter( (v, i, a) => { return v.destination == this })
+			var connected_wires = this.p_wires.filter( (v, i, a) => { return v.destination == this })
 
-			any_unpropogated = false
+			var any_unpropogated = false
 
-			for (i of connected_wires){
+			for (var i of connected_wires){
 				if (i.unpropated){
 					any_unpropogated=true
 				}
@@ -702,10 +701,10 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 
 	}
 
-	this.propagate_state = function () { // updates state of wires connected and notifies the wire
+	propagate_state() { // updates state of wires connected and notifies the wire
 		//console.log('propagating?',this.gate_type,this.initial_propogation)
 		//change this for ic
-		wires_to_propagate = this.p_wires.filter( (v, i, a) => { return v.origin == this })
+		var wires_to_propagate = this.p_wires.filter( (v, i, a) => { return v.origin == this })
 
 		// for (w of wires_to_propagate){
 		// 	w.unpropated = true
@@ -716,7 +715,7 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 		// 	w.propagate_state();
 		// }
 
-		for (w of wires_to_propagate){
+		for (var w of wires_to_propagate){
 			w.unpropated = true
 			w.state = this.output_states[w.onum]
 			w.propagate_state();
@@ -727,12 +726,12 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 
 	}
 
-	this.draw = function () {
+	draw() {
 		ctx.lineWidth  = 5
 		ctx.strokeStyle  = 'black'
 		ctx.fillStyle  = 'white'
+
 		if (this.gate_type == 'output'){
-			////if (this.state == true){
 			if (this.output_states[0] == true){
 				ctx.fillStyle  = '#03abff'
 			}
@@ -749,15 +748,28 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 		// 		ctx.strokeStyle  = 'black'
 		// 	}
 		// }
+		
+		ctx.fillRect(this.x, this.y, this.width, this.width);
 		if (selected.includes(this)){
 			ctx.shadowColor = '#0a86ea';
 			ctx.shadowBlur = 5;
 		}
-		ctx.fillRect(this.x, this.y, this.width, this.width);
 		ctx.strokeRect(this.x, this.y, this.width, this.width);
 		if (selected.includes(this)){
 			ctx.shadowColor = "rgba(0, 0, 0, 0)";
 			ctx.shadowBlur = 0;
+		}
+		if (this.gate_type == 'switch' || this.gate_type == 'clock'){
+			if (this.output_states[0] == true){
+				ctx.strokeStyle  = '#03abff'
+			}
+			else{
+				ctx.strokeStyle  = 'lightgrey'
+			}
+			// Draw a smaller square inside the main square
+			const padding = 5; // Padding from the main square
+			const innerSize = this.width - 2 * padding; // Size of the inner square
+			ctx.strokeRect(this.x + padding, this.y + padding, innerSize, innerSize);
 		}
 
 
@@ -776,6 +788,7 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 
 		ctx.lineWidth  = 1.5 //used to be 2
 		ctx.fillStyle = "white";
+		ctx.strokeStyle = "black"
 
 		ctx.font = label_font;
 		ctx.textAlign = "left";
@@ -785,8 +798,8 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 
 			this.output_label = this.output_labels[i]
 
-			tm = ctx.measureText(this.output_label)
-			center_offset = (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent)/2 - tm.actualBoundingBoxDescent
+			var tm = ctx.measureText(this.output_label)
+			var center_offset = (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent)/2 - tm.actualBoundingBoxDescent
 			ctx.roundRect(this.x + this.width - 7,this.output_y(i)-7,7*2+(this.output_label ? 1:0)*(7+tm.width),14,7)
 			ctx.fill();
 			ctx.stroke();
@@ -807,8 +820,8 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 
 			this.input_label = this.input_labels[i]
 
-			tm = ctx.measureText(this.input_label)
-			center_offset = (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent)/2 - tm.actualBoundingBoxDescent
+			var tm = ctx.measureText(this.input_label)
+			var center_offset = (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent)/2 - tm.actualBoundingBoxDescent
 			//adjusted_width = 2*(1-tm.actualBoundingBoxLeft) + tm.actualBoundingBoxRight
 			ctx.roundRect(this.input_x(i)-7,this.input_y(i)-7,7*2+(this.input_label ? 1:0)*(7+tm.width),14,7)
 			ctx.fill();
@@ -842,7 +855,6 @@ function component(x,y,gate_type='switch',p=null,internal_components=[],internal
 		}
 	}
 }
-
 
 for (i of components){
 	if (i.gate_type == 'switch' || i.gate_type.includes('const')){
@@ -879,21 +891,29 @@ setInterval(function(){
 	if (new_wire_origin != null){
 		ctx.lineCap = 'round'
 		ctx.lineWidth  = 10
-		ctx.strokeStyle  = 'grey'
-		ctx.beginPath();
-		ctx.moveTo(new_wire_origin.output_x(new_wire_origin_num), new_wire_origin.output_y(new_wire_origin_num));
-		ctx.lineTo(mx, my);
-		ctx.stroke();
+		ctx.strokeStyle  = 'grey' 
 
-		//console.log(new_wire_origin.output_states.length-1-new_wire_origin_num)
-		if (shiftdown){
-			for (i=new_wire_origin_num+1; i<(new_wire_origin.output_states.length); i++ ){
-				ctx.beginPath();
-				ctx.moveTo(new_wire_origin.output_x(i), new_wire_origin.output_y(i));
-				ctx.lineTo(mx, my+(new_wire_origin.output_y(i)-new_wire_origin.output_y(new_wire_origin_num)));
-				ctx.stroke();
-			}
-		}
+        const drawWire = (x, y) => {
+            ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(mx, my); ctx.stroke();
+        };
+
+        if (new_wire_type == 'source') {
+            drawWire(new_wire_origin.output_x(new_wire_io), new_wire_origin.output_y(new_wire_io));
+
+            if (shiftdown) {
+                for (let i = new_wire_io + 1; i < new_wire_origin.output_states.length; i++) {
+                    drawWire(new_wire_origin.output_x(i), new_wire_origin.output_y(i));
+                }
+            }
+        } else if (new_wire_type == 'destination') {
+            drawWire(new_wire_origin.input_x(new_wire_io), new_wire_origin.input_y(new_wire_io));
+
+            if (shiftdown) {
+                for (let i = new_wire_io + 1; i < new_wire_origin.input_states.length; i++) {
+                    drawWire(new_wire_origin.input_x(i), new_wire_origin.input_y(i));
+                }
+            }
+        }
 	}
 
 	for (i of wires){ i.draw() }
@@ -904,7 +924,7 @@ setInterval(function(){
 		ctx.fillRect(mox,moy,mx-mox,my-moy);
 	}
 
-	if (frame >= frame_rate){
+	if (frame >= frame_rate/2){
 		frame=0
 		components.filter((obj) => obj.gate_type === 'clock').map((obj) => obj.toggle())
 	}
@@ -952,10 +972,13 @@ function save(sort=false){
 	return JSON.stringify(file)
 }
 
-function load(file){
+function load(file, add=false){
 	data = JSON.parse(file)
-	components = []
-	wires = []
+	if (!add){
+		components = []
+		wires = []
+	}
+	
 
 
 	for (c of data['components']){
@@ -976,9 +999,8 @@ function load(file){
 							)
 	}
 
-	//duplicated code from line 333
+	// consider duplicated code?
 	for (i of components){
-		//console.log(i)
 		if (i.gate_type == 'switch' || i.gate_type.includes('const')){
 			i.propagate_state()
 		}
@@ -990,16 +1012,12 @@ function load(file){
 
 integrated_circuit_blueprints = {}
 
-function integrated_circuit_setup(text,n=null){
+function integrated_circuit_setup(text, n = null){
 	if (typeof(text) == 'string'){
 		text = JSON.parse(text)
 	}
 
-	if (n == null){
-		n = text['name']
-	}
-
-	// console.log('k',text)
+	this.n = n || text['name']
 
 	var cs = []
 	var ws = []
@@ -1013,7 +1031,7 @@ function integrated_circuit_setup(text,n=null){
 		text['y'] = 200
 	}
 
-	for (i of text['components']){
+	for (var i of text['components']){
 		if (i.gate_type == 'integrated'){
 			c = integrated_circuit_setup(i)
 		}
@@ -1028,7 +1046,7 @@ function integrated_circuit_setup(text,n=null){
 						cs[i['destination']],
 						i['dnum'], i['onum']))
 	}
-	return new component(text['x'],text['y'],'integrated',null,internal_components=cs,internal_wires=ws,name=n,input_labels=text['input_labels'],output_labels=text['output_labels'])
+	return new component(text['x'],text['y'],'integrated',null,internal_components=cs,internal_wires=ws,name=this.n,input_labels=text['input_labels'],output_labels=text['output_labels'])
 }
 
 function integrated_circuit_export(component){
@@ -1043,7 +1061,7 @@ function integrated_circuit_export(component){
 	internal = {'components': [],
 			'wires': []
 	}
-	for (c of component.internal_components){
+	for (var c of component.internal_components){
 		if (c.gate_type == 'integrated'){
 			internal['components'].push(integrated_circuit_export(c))
 		}
@@ -1058,7 +1076,7 @@ function integrated_circuit_export(component){
 		}
 		
 	}
-	for (w of component.internal_wires){
+	for (var w of component.internal_wires){
 		internal['wires'].push( 
 			{'origin': component.internal_components.indexOf(w.origin),
 			 'destination': component.internal_components.indexOf(w.destination),
